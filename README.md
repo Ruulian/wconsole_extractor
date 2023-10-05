@@ -8,7 +8,7 @@ Wconsole Extractor is a library which allows to automatically exploit a flask de
 
 ```
 git clone https://github.com/Ruulian/wconsole_extractor.git
-cd wconsole-extractor
+cd wconsole_extractor
 pip3 install .
 ```
 
