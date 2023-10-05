@@ -24,6 +24,7 @@ class WConsoleExtractor:
         # Get base url
         splitted = urlsplit(self.target)
         self.base_url = f"{splitted.scheme}://{splitted.netloc}"
+        self.hostname = splitted.hostname
 
         # Initialize session
         self.sess = requests.Session()
@@ -210,7 +211,7 @@ class WConsoleExtractor:
         while cmd not in exit_commands:
             pwd = self.exec_cmd("pwd")
             try:
-                self.print(f"{pwd}$ ")
+                self.print(f"{self.username}@{self.hostname}:{pwd}$ ")
                 cmd = self.input()
             except KeyboardInterrupt:
                 error("Shell terminated", prefix="\n")

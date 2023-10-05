@@ -39,6 +39,7 @@ You have now instanciated the ``WConsoleExtractor`` class, here is what you can 
 # Properties
 extractor.base_url             # => http://localhost
 extractor.class_name           # => Flask
+extractor.hostname             # => target hostname (e.g localhost)
 extractor.machine_id           # => Machine id needed in private_bits
 extractor.modname              # => flask.app
 extractor.pin_code             # => debug console PIN CODE
