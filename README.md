@@ -7,9 +7,9 @@ Wconsole Extractor is a library which allows to automatically exploit a flask de
 ## Installation
 
 ```
-git clone https://github.com/Ruulian/wconsole-extractor.git
+git clone https://github.com/Ruulian/wconsole_extractor.git
 cd wconsole-extractor
-python3 setup.py install
+pip3 install .
 ```
 
 ## Requirements
@@ -21,7 +21,7 @@ To use this library the following requirements need to be satisfied:
 ## Usage
 
 ```py
-from wconsole-extractor import WConsoleExtractor
+from wconsole_extractor import WConsoleExtractor
 import requests
 
 def leak_file(filename) -> str:
