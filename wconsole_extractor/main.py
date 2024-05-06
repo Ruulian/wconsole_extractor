@@ -17,7 +17,7 @@ class WConsoleExtractor:
     def __init__(self, target:str, leak_function) -> None:
         self.target = target
         if not callable(leak_function):
-            error("You leak function is not callable")
+            error("Your leak function is not callable")
 
         self.leak_function = leak_function
 
