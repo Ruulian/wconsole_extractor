@@ -9,7 +9,7 @@ with open('requirements.txt') as f:
 
 setuptools.setup(
     name="wconsole_extractor",
-    version="1.0",
+    version="1.0.1",
     description="",
     url="https://github.com/Ruulian/wconsole_extractor",
     author="Ruulian",

