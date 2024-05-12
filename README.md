@@ -11,6 +11,10 @@
 
 > Wconsole Extractor is a library which allows to automatically exploit a flask debug mode server. You just need to write a file leak function, pass it to the class ``WConsoleExtractor`` constructor and you can access to all the elements related to the debug mode. Moreover, you can call the `shell` function to obtain an interactive shell.
 
+## ✨ Demo
+
+![example_gif](.github/example.gif)
+
 ## 🔨 Install
 
 ### From PyPi
@@ -121,10 +125,6 @@ extractor = WConsoleExtractor(
 info(f"PIN CODE: {extractor.pin_code}")
 extractor.shell()
 ```
-
-## ✨ Demo
-
-![example_gif](.github/example.gif)
 
 ## Author
 
