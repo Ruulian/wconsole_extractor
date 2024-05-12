@@ -1,6 +1,7 @@
 import setuptools
 
-long_description = "WConsole Extractor is a python library which automatically exploits a Werkzeug development server in debug mode. You just have to write a python function that leaks a file content and you have your shell :)"
+with open("README.md") as f:
+    long_description = f.read()
 
 
 with open('requirements.txt') as f:

@@ -68,7 +68,7 @@ class WConsoleExtractor:
         self.flask_path = self.get_flask_path(WConsoleExtractor.get_venv(environ))
 
         if not self.flask_path:
-            error("Unable to find flask package name")
+            error("Unable to find flask package name, please report it (https://github.com/Ruulian/wconsole_extractor/issues)")
         
         self.probably_public_bits = [
             self.username, 
