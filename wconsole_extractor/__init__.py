@@ -1,1 +1,1 @@
-from .main import WConsoleExtractor
+from .main import WConsoleExtractor, info
