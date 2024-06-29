@@ -21,14 +21,13 @@ class WConsoleExtractor:
     modname = "flask.app"
     class_name = "Flask"
 
-    def __init__(self, target:str, leak_function, debugger_path:str="/console",spawn_shell:bool=True) -> None:
+    def __init__(self, target:str, leak_function, debugger_path:str="/console") -> None:
         self.target = target
         if not callable(leak_function):
             error("Your leak function is not callable")
 
         self.leak_function = leak_function
         self.debugger_path = debugger_path
-        self.spawn_shell = spawn_shell
 
         # Get base url
         splitted = urlsplit(self.target)
@@ -412,12 +411,6 @@ class WConsoleExtractor:
 
         return output.strip()
     
-    def runner(self):
-        if self.spawn_shell:
-            self.shell()
-        else:
-            self.debugger()
-
     def shell(self):
         exit_commands = ["exit", "quit", "q"]
         clear_commands = ["clear", "c"]
