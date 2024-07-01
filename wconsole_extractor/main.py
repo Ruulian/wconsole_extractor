@@ -5,6 +5,9 @@ import hashlib
 from itertools import chain
 from bs4 import BeautifulSoup as bs
 import json
+from rich.console import Console
+
+# print = Console(style="bold green").print
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.shortcuts import clear
@@ -352,6 +355,23 @@ class WConsoleExtractor:
         except:
             error("Error during authentication")
         return state["auth"]
+    
+    def parse_html(self, content:str):
+        soup = bs(content, 'html.parser')
+        span = soup.find("span", attrs={"class":"string"})
+        traceback = soup.find("div", attrs={"class":"traceback"})
+        if span:
+            res = span.contents[0]
+            extended = span.find("span")
+            if extended:
+                res += extended.contents[0]
+            output = WConsoleExtractor.sanitize_output(res)
+        elif traceback:
+            err = traceback.find("blockquote")
+            output = err.contents[0]
+        else:
+            output = ""
+        return output.strip()
 
     def exec_cmd(self, cmd:str):
         argv = cmd.split(' ')
@@ -365,23 +385,8 @@ class WConsoleExtractor:
         if res.status_code == 404:
             error("Error while sending command, please report the issue on tool's repository")
             return
-        
-        soup = bs(res.text, 'html.parser')
-        span = soup.find("span", attrs={"class":"string"})
-        traceback = soup.find("div", attrs={"class":"traceback"})
-
-        if span:
-            res = span.contents[0]
-            extended = span.find("span")
-            if extended:
-                res += extended.contents[0]
-            output = WConsoleExtractor.sanitize_output(res)
-        elif traceback:
-            err = traceback.find("blockquote")
-            output = err.contents[0]
-        else:
-            output = ""
-
+    
+        output = self.parse_html(res.text)
         return output.strip()
     
     def exec_dbg(self, code:str):
@@ -393,22 +398,10 @@ class WConsoleExtractor:
             error("Error while evaluating code, please report the issue on tool's repository")
             return
         
-        soup = bs(res.text, 'html.parser')
-        span = soup.find("span", attrs={"class":"string"})
-        traceback = soup.find("div", attrs={"class":"traceback"})
-
-        if span:
-            res = span.contents[0]
-            extended = span.find("span")
-            if extended:
-                res += extended.contents[0]
-            output = WConsoleExtractor.sanitize_output(res)
-        elif traceback:
-            err = traceback.find("blockquote")
-            output = err.contents[0]
-        else:
-            output = ""
-
+        output = self.parse_html(res.text)
+        if not output:
+            output = res.text.split("\n")[1]
+        
         return output.strip()
     
     def shell(self):
@@ -444,7 +437,7 @@ class WConsoleExtractor:
                 if code in exit_commands:
                     raise SystemExit
                 if code in clear_commands:
-                    self.clear()
+                    clear()
                     continue
             except (KeyboardInterrupt, EOFError, SystemExit):
                 break
