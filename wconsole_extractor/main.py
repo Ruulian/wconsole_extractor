@@ -7,7 +7,7 @@ from bs4 import BeautifulSoup as bs
 import json
 from rich.console import Console
 
-# print = Console(style="bold green").print
+print = Console(style="bold green").print
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.shortcuts import clear
