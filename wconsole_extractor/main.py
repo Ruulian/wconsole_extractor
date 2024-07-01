@@ -308,8 +308,8 @@ class WConsoleExtractor:
 
             if len(matched) > 0:
                 uuid_node = str(int(matched[0].replace(":", ""), base=16))
-
-            return uuid_node
+                return uuid_node
+        
         error(f"Unable to find uuid node, no valid mac address found in {device_ids}")
 
     def compute_pin(self):
