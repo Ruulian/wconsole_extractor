@@ -370,21 +370,25 @@ class WConsoleExtractor:
         return state["auth"]
     
     def parse_html(self, content:str):
-        soup = bs(content, "html.parser")
-        traceback = soup.find("div", attrs={"class":"traceback"})
+        try:
+            soup = bs(content, "html.parser")
+            traceback = soup.find("div", attrs={"class":"traceback"})
 
-        if traceback:
-            if "noframe-traceback" in traceback.attrs["class"]:
-                err = traceback.find("pre")
-            else:
-                err = traceback.find("blockquote")
+            if traceback:
+                if "noframe-traceback" in traceback.attrs["class"]:
+                    err = traceback.find("pre")
+                else:
+                    err = traceback.find("blockquote")
             
-            if not err:
-                error("Unhandled error, please report the issue on tool's repository")
-        else:
-            res = content.split("\n")[1]
-            output = html.unescape(re.sub(r"<((?![<>]).)+>", "", res))
-
+                if not err:
+                    error("Unhandled error, please report the issue on tool's repository")
+            else:
+                res = content.split("\n")[1]
+                output = html.unescape(re.sub(r"<((?![<>]).)+>", "", res))
+        except Exception as e:
+            error(e)
+            pass
+        
         return output.strip()
     
     def exec_console(self, code:str):
@@ -416,6 +420,7 @@ class WConsoleExtractor:
         return output
     
     def shell(self):
+        switch_commands = ["shell", "debug"]
         exit_commands = ["exit", "quit", "q"]
         clear_commands = ["clear", "c"]
         session = PromptSession()
@@ -428,6 +433,8 @@ class WConsoleExtractor:
                 if cmd in clear_commands:
                     clear()
                     continue
+                if cmd.strip() in switch_commands:
+                    self.debugger()
             except (KeyboardInterrupt, EOFError, SystemExit):
                 break
             else:
@@ -438,6 +445,7 @@ class WConsoleExtractor:
         info("Shell Terminated")
 
     def debugger(self):
+        switch_commands = ["shell", "debug"]
         exit_commands = ["exit", "quit", "q"]
         clear_commands = ["clear", "c"]
         session = PromptSession()
@@ -447,9 +455,11 @@ class WConsoleExtractor:
                 code = session.prompt("[DEBUGGER] > ")
                 if code in exit_commands:
                     raise SystemExit
-                if code in clear_commands:
+                if code.strip() in clear_commands:
                     clear()
                     continue
+                if code.strip() in switch_commands:
+                    self.shell()
             except (KeyboardInterrupt, EOFError, SystemExit):
                 break
             else:
