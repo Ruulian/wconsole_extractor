@@ -159,8 +159,8 @@ class WConsoleExtractor:
 
     @staticmethod
     def sanitize_output(output:str):
-        return output.replace("\\n", "\n")[2:-1]
-
+        return output.replace("\\n", "\n")[1:-1]
+    
     def get(self, path:str):
         return self.sess.get(f"{self.base_url}{path}")
 
@@ -430,7 +430,7 @@ class WConsoleExtractor:
         else:
             output = ""
 
-        return WConsoleExtractor.sanitize_command_output(output)
+        return WConsoleExtractor.sanitize_output(output)
     
     def exec_dbg(self, code:str):
         res = self.exec_console(code)
@@ -458,7 +458,7 @@ class WConsoleExtractor:
                     continue
                 if cmd.strip() in switch_commands:
                     self.debugger()
-            except (KeyboardInterrupt, EOFError, SystemExit):
+            except (KeyboardInterrupt, EOFError, SystemExit,IndexError):
                 break
             else:
                 output = self.exec_cmd(cmd)
@@ -490,5 +490,5 @@ class WConsoleExtractor:
                     output = self.exec_dbg(code)
                 except Exception as e:
                     output = str(e)
-                self.rprint(f"{output}")
+                rprint(f"{output}")
         info("Debugger Terminated")
